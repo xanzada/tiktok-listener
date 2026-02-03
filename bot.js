@@ -1,46 +1,52 @@
-// bot.js - Easypanel үшін арнайы нұсқа
+// bot.js - Easypanel Fix (Health Check қосылған)
 const { WebcastPushConnection } = require('tiktok-live-connector');
 const axios = require('axios');
+const http = require('http'); // Серверді алдау үшін керек
 
-// Айнымалыларды Easypanel-ден оқимыз
+// --- 1. HEALTH CHECK (Серверге "Мен тірімін" деп айту) ---
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('TikTok Bot is Running! 🚀');
+});
+
+// Easypanel әдетте 3000 портты күтеді
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`✅ Сервер (Health Check) ${PORT} портында қосылды!`);
+});
+
+// --- 2. TIKTOK BOT (Негізгі жұмыс) ---
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME; 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 
 if (!TIKTOK_USERNAME || !N8N_WEBHOOK_URL) {
-    console.error("❌ ҚАТЕ: TIKTOK_USERNAME немесе N8N_WEBHOOK_URL енгізілмеген!");
-    process.exit(1);
-}
+    console.error("❌ ҚАТЕ: TIKTOK_USERNAME немесе N8N_WEBHOOK_URL жоқ!");
+} else {
+    console.log(`🚀 Бот іске қосылуда! Мақсат: @${TIKTOK_USERNAME}`);
+    
+    let tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME);
 
-console.log(`🚀 Бот іске қосылды! Мақсат: @${TIKTOK_USERNAME}`);
+    function connect() {
+        tiktokLiveConnection.connect().then(state => {
+            console.info(`✅ @${TIKTOK_USERNAME} стриміне қосылдық! (Room ID: ${state.roomId})`);
+        }).catch(err => {
+            console.error('❌ Қосылу сәтсіз (Стрим жоқ болуы мүмкін), 30 секундтан соң қайталаймыз...');
+            setTimeout(connect, 30000); 
+        });
+    }
 
-let tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME);
+    connect();
 
-// Қосылу функциясы (үзіліп қалса қайта қосылу үшін)
-function connect() {
-    tiktokLiveConnection.connect().then(state => {
-        console.info(`✅ @${TIKTOK_USERNAME} стриміне сәтті қосылдық! (Room ID: ${state.roomId})`);
-    }).catch(err => {
-        console.error('❌ Қосылу сәтсіз, 10 секундтан кейін қайта көреміз...', err.message);
-        setTimeout(connect, 10000); // 10 секундтан кейін қайта қосылу
+    tiktokLiveConnection.on('chat', data => {
+        axios.post(N8N_WEBHOOK_URL, {
+            username: data.uniqueId,
+            comment: data.comment,
+            userId: data.userId,
+            streamer: TIKTOK_USERNAME
+        }).catch(err => {}); // Қате болса үндемейміз
+    });
+    
+    tiktokLiveConnection.on('streamEnd', () => {
+        console.warn('⚠️ Стрим аяқталды.');
     });
 }
-
-connect();
-
-// Чатты ұстап алу
-tiktokLiveConnection.on('chat', data => {
-    // n8n-ге лақтыру
-    axios.post(N8N_WEBHOOK_URL, {
-        username: data.uniqueId,
-        comment: data.comment,
-        userId: data.userId,
-        streamer: TIKTOK_USERNAME // Қай клиенттің стримі екенін білу үшін
-    }).catch(error => {
-        // n8n қатесін елемеу (логты толтырмас үшін)
-    });
-});
-
-// Стрим аяқталса
-tiktokLiveConnection.on('streamEnd', () => {
-    console.warn('⚠️ Стрим аяқталды. Күту режимі...');
-});
