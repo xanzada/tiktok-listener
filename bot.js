@@ -1,28 +1,29 @@
-// bot.js - Easypanel Fix (Health Check қосылған)
 const { WebcastPushConnection } = require('tiktok-live-connector');
 const axios = require('axios');
-const http = require('http'); // Серверді алдау үшін керек
+const http = require('http');
 
-// --- 1. HEALTH CHECK (Серверге "Мен тірімін" деп айту) ---
+// --- 1. HEALTH CHECK (СЕРВЕРДІ АЛДАУ) ---
+// Маңызды: '0.0.0.0' деп көрсету керек, әйтпесе Docker көрмейді
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('TikTok Bot is Running! 🚀');
+    res.end('TikTok Bot is Alive and Listening! 🚀');
 });
 
-// Easypanel әдетте 3000 портты күтеді
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`✅ Сервер (Health Check) ${PORT} портында қосылды!`);
+
+// ТҮЗЕТУ: '0.0.0.0' қосылды
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Сервер (Health Check) ${PORT} портында және 0.0.0.0 адресінде қосылды!`);
 });
 
-// --- 2. TIKTOK BOT (Негізгі жұмыс) ---
+// --- 2. TIKTOK BOT ЛОГИКАСЫ ---
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME; 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 
 if (!TIKTOK_USERNAME || !N8N_WEBHOOK_URL) {
     console.error("❌ ҚАТЕ: TIKTOK_USERNAME немесе N8N_WEBHOOK_URL жоқ!");
 } else {
-    console.log(`🚀 Бот іске қосылуда! Мақсат: @${TIKTOK_USERNAME}`);
+    console.log(`🚀 Бот іске қосылуда... Мақсат: @${TIKTOK_USERNAME}`);
     
     let tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME);
 
@@ -30,10 +31,16 @@ if (!TIKTOK_USERNAME || !N8N_WEBHOOK_URL) {
         tiktokLiveConnection.connect().then(state => {
             console.info(`✅ @${TIKTOK_USERNAME} стриміне қосылдық! (Room ID: ${state.roomId})`);
         }).catch(err => {
-            console.error('❌ Қосылу сәтсіз (Стрим жоқ болуы мүмкін), 30 секундтан соң қайталаймыз...');
+            // Егер стрим жоқ болса, бот құлап қалмау керек
+            console.error('⚠️ Стрим әзірге жоқ немесе қосыла алмадық. 30 секундтан соң қайталаймыз.');
             setTimeout(connect, 30000); 
         });
     }
+
+    // Қатеден құлап қалмау үшін қорғаныс
+    process.on('uncaughtException', (err) => {
+        console.log('Күтпеген қате:', err.message);
+    });
 
     connect();
 
@@ -43,11 +50,6 @@ if (!TIKTOK_USERNAME || !N8N_WEBHOOK_URL) {
             comment: data.comment,
             userId: data.userId,
             streamer: TIKTOK_USERNAME
-        }).catch(err => {}); // Қате болса үндемейміз
-    });
-    
-    tiktokLiveConnection.on('streamEnd', () => {
-        console.warn('⚠️ Стрим аяқталды.');
+        }).catch(err => {}); 
     });
 }
-
